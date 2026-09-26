@@ -1,7 +1,7 @@
 name: Build Android App
 
 on:
-  workflow_dispatch:      # يسمح لك تشغّله يدويًا من تبويب Actions
+  workflow_dispatch:
   push:
     branches: [ main ]
 
@@ -23,7 +23,6 @@ jobs:
       - name: Grant execute permission
         run: chmod +x gradlew
 
-      # نسخة تجريبية (debug) تقدر تحمّلها وتثبتها على هاتفك مباشرة
       - name: Build debug APK
         run: ./gradlew assembleDebug
 
@@ -33,23 +32,24 @@ jobs:
           name: app-debug-apk
           path: app/build/outputs/apk/debug/*.apk
 
-      # نسخة الإصدار (release) الموقّعة — لرفعها على Play Store
-      # يتطلب إضافة الأسرار KEYSTORE_BASE64, STORE_PASSWORD, KEY_PASSWORD في إعدادات المستودع
-      - name: Decode keystore
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
-        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > my-upload-key.jks
-
-      - name: Build release AAB
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+      - name: Decode keystore and build release AAB
         env:
-          KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew bundleRelease
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > my-upload-key.jks
+            export KEYSTORE_PATH="$GITHUB_WORKSPACE/my-upload-key.jks"
+            ./gradlew bundleRelease
+          else
+            echo "Skipping release build: KEYSTORE_BASE64 not set"
+          fi
 
       - name: Upload release AAB
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: app-release-aab
           path: app/build/outputs/bundle/release/*.aab
+          if-no-files-found: ignore
