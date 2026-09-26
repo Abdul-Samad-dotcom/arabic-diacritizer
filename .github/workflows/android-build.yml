@@ -20,11 +20,8 @@ jobs:
       - name: Create .env with API key
         run: echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" > .env
 
-      - name: Grant execute permission
-        run: chmod +x gradlew
-
       - name: Build debug APK
-        run: ./gradlew assembleDebug
+        run: gradle assembleDebug --no-daemon
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
@@ -41,7 +38,7 @@ jobs:
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "$KEYSTORE_BASE64" | base64 -d > my-upload-key.jks
             export KEYSTORE_PATH="$GITHUB_WORKSPACE/my-upload-key.jks"
-            ./gradlew bundleRelease
+            gradle bundleRelease --no-daemon
           else
             echo "Skipping release build: KEYSTORE_BASE64 not set"
           fi
