@@ -120,7 +120,7 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun ArabicDiacritizerTheme(content: @Composable () -> Unit) {
-    val emeraldScheme = lightColorScheme(
+    val emeraldLightScheme = lightColorScheme(
         primary = Color(0xFF0F5132),
         onPrimary = Color.White,
         primaryContainer = Color(0xFFD1E7DD),
@@ -133,8 +133,21 @@ fun ArabicDiacritizerTheme(content: @Composable () -> Unit) {
         onBackground = Color(0xFF1F2421)
     )
 
+    val emeraldDarkScheme = darkColorScheme(
+        primary = Color(0xFF7FD8AE),
+        onPrimary = Color(0xFF0A3B26),
+        primaryContainer = Color(0xFF0F5132),
+        onPrimaryContainer = Color(0xFFD1E7DD),
+        secondary = Color(0xFFE0C46B),
+        secondaryContainer = Color(0xFF4D3F0A),
+        surface = Color(0xFF17201C),
+        background = Color(0xFF101512),
+        onSurface = Color(0xFFE3E6E3),
+        onBackground = Color(0xFFE3E6E3)
+    )
+
     MaterialTheme(
-        colorScheme = emeraldScheme,
+        colorScheme = if (androidx.compose.foundation.isSystemInDarkTheme()) emeraldDarkScheme else emeraldLightScheme,
         content = content
     )
 }
@@ -168,11 +181,11 @@ fun ArabicDiacritizerScreen() {
             errorMessage = null
             activeJob = coroutineScope.launch(Dispatchers.IO) {
                 try {
-                    val bitmap = loadScaledBitmap(context, uri, maxDimension = 1536)
+                    val bitmap = loadScaledBitmap(context, uri, maxDimension = 1024)
                     withContext(Dispatchers.Main) {
                         selectedBitmap = bitmap
                     }
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     withContext(Dispatchers.Main) {
                         errorMessage = "فشل تحميل الصورة: ${e.localizedMessage ?: e.message}"
                     }
@@ -234,10 +247,14 @@ fun ArabicDiacritizerScreen() {
                         errorMessage = "لم يتم العثور على نص عربي في الصورة أو لم يُرجع النموذج استجابة."
                     }
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 withContext(Dispatchers.Main) {
                     isLoading = false
-                    errorMessage = "خطأ أثناء معالجة الصورة: ${e.localizedMessage ?: e.message}"
+                    errorMessage = if (e is OutOfMemoryError) {
+                        "الصورة كبيرة جدًا على ذاكرة الجهاز. جرّب صورة أصغر أو أقل دقة."
+                    } else {
+                        "خطأ أثناء معالجة الصورة: ${e.localizedMessage ?: e.message}"
+                    }
                 }
             }
         }
