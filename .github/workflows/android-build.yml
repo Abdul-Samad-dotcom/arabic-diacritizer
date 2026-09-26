@@ -20,6 +20,12 @@ jobs:
       - name: Create .env with API key
         run: echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" > .env
 
+      - name: Generate debug keystore
+        run: |
+          keytool -genkeypair -v -keystore debug.keystore -storepass android \
+            -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 \
+            -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+
       - name: Build debug APK
         run: gradle assembleDebug --no-daemon
 
