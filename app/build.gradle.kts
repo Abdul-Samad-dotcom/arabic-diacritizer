@@ -87,6 +87,7 @@ dependencies {
   implementation("androidx.room:room-runtime:2.7.0")
   implementation("com.squareup.retrofit2:converter-moshi:2.12.0")
   implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
+  implementation("io.ktor:ktor-client-okhttp:2.3.12")
   implementation("com.google.firebase:firebase-ai")
   implementation("com.google.firebase:firebase-appcheck-recaptcha")
   implementation("com.google.firebase:firebase-appcheck-debug")
