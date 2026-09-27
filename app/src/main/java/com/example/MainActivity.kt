@@ -201,6 +201,24 @@ fun ArabicDiacritizerScreen() {
         }
     }
 
+    // Turns raw exceptions into a clear Arabic message.
+    // Note: the older Gemini SDK has a bug where a 503 "server busy" response
+    // (missing an optional "details" field) makes it throw a confusing
+    // MissingFieldException instead of a clean error - we detect that case here.
+    fun friendlyErrorMessage(e: Throwable): String {
+        val raw = "${e.message} ${e.localizedMessage}"
+        return when {
+            e is OutOfMemoryError ->
+                "الملف كبير جدًا على ذاكرة الجهاز. جرّب صورة أو نصًا أصغر."
+            raw.contains("UNAVAILABLE") || raw.contains("503") || raw.contains("high demand") ->
+                "خوادم Gemini مزدحمة حاليًا. حاول مرة أخرى خلال دقيقة."
+            raw.contains("MissingFieldException") ->
+                "حدث خطأ غير متوقع من الخادم. حاول مرة أخرى."
+            else ->
+                "خطأ: ${e.localizedMessage ?: e.message}"
+        }
+    }
+
     // Function to diacritize plain text typed or pasted by the user (no image/OCR needed)
     fun processTextWithGemini(inputText: String) {
         if (inputText.isBlank()) {
@@ -250,11 +268,7 @@ fun ArabicDiacritizerScreen() {
             } catch (e: Throwable) {
                 withContext(Dispatchers.Main) {
                     isLoading = false
-                    errorMessage = if (e is OutOfMemoryError) {
-                        "النص طويل جدًا على ذاكرة الجهاز. جرّب تقسيمه لأجزاء أصغر."
-                    } else {
-                        "خطأ أثناء معالجة النص: ${e.localizedMessage ?: e.message}"
-                    }
+                    errorMessage = friendlyErrorMessage(e)
                 }
             }
         }
@@ -316,11 +330,7 @@ fun ArabicDiacritizerScreen() {
             } catch (e: Throwable) {
                 withContext(Dispatchers.Main) {
                     isLoading = false
-                    errorMessage = if (e is OutOfMemoryError) {
-                        "الصورة كبيرة جدًا على ذاكرة الجهاز. جرّب صورة أصغر أو أقل دقة."
-                    } else {
-                        "خطأ أثناء معالجة الصورة: ${e.localizedMessage ?: e.message}"
-                    }
+                    errorMessage = friendlyErrorMessage(e)
                 }
             }
         }
