@@ -20,6 +20,9 @@ jobs:
       - name: Create .env with API key
         run: echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" > .env
 
+      - name: Show ktor dependency tree
+        run: gradle :app:dependencies --configuration debugRuntimeClasspath | grep -i ktor
+
       - name: Generate debug keystore
         run: |
           keytool -genkeypair -v -keystore debug.keystore -storepass android \
