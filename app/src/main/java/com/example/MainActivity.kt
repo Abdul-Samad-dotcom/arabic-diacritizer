@@ -104,6 +104,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import kotlin.math.roundToInt
 
 // gemini-3.8-flash does not exist as a published model; gemini-3.5-flash is the
@@ -116,9 +123,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            ArabicDiacritizerTheme {
-                ArabicDiacritizerScreen()
-            }
+            AppRoot()
         }
     }
 }
@@ -930,4 +935,64 @@ private fun shareText(context: Context, text: String) {
     }
     val shareIntent = Intent.createChooser(sendIntent, "مشاركة النص المشكول")
     context.startActivity(shareIntent)
+}
+
+
+// ---------- Bottom navigation: الرئيسية / السجل / الإعدادات ----------
+enum class AppTab { HOME, HISTORY, SETTINGS }
+
+@Composable
+fun AppRoot() {
+    var selectedTab by remember { mutableStateOf(AppTab.HOME) }
+
+    ArabicDiacritizerTheme {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            contentWindowInsets = WindowInsets(0.dp, 0.dp, 0.dp, 0.dp),
+            bottomBar = {
+                // Force RTL so the order is: الرئيسية (right) - السجل - الإعدادات (left)
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+                    NavigationBar {
+                        NavigationBarItem(
+                            selected = selectedTab == AppTab.HOME,
+                            onClick = { selectedTab = AppTab.HOME },
+                            icon = { Icon(Icons.Default.Home, contentDescription = null) },
+                            label = { Text("الرئيسية") }
+                        )
+                        NavigationBarItem(
+                            selected = selectedTab == AppTab.HISTORY,
+                            onClick = { selectedTab = AppTab.HISTORY },
+                            icon = { Icon(Icons.Default.History, contentDescription = null) },
+                            label = { Text("السجل") }
+                        )
+                        NavigationBarItem(
+                            selected = selectedTab == AppTab.SETTINGS,
+                            onClick = { selectedTab = AppTab.SETTINGS },
+                            icon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                            label = { Text("الإعدادات") }
+                        )
+                    }
+                }
+            }
+        ) { innerPadding ->
+            Box(modifier = Modifier.padding(innerPadding).consumeWindowInsets(innerPadding)) {
+                // Home stays composed the whole time, so the picked image and the
+                // diacritized text are NOT lost when switching tabs.
+                ArabicDiacritizerScreen()
+
+                when (selectedTab) {
+                    AppTab.HOME -> Unit
+                    AppTab.HISTORY -> Surface(modifier = Modifier.fillMaxSize()) { PlaceholderScreen("السجل") }
+                    AppTab.SETTINGS -> Surface(modifier = Modifier.fillMaxSize()) { PlaceholderScreen("الإعدادات") }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PlaceholderScreen(title: String) {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Text(text = "$title - قريبًا", style = MaterialTheme.typography.titleMedium)
+    }
 }
