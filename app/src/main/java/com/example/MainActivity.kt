@@ -103,6 +103,7 @@ import com.google.ai.client.generativeai.type.content
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -224,6 +225,19 @@ fun ArabicDiacritizerScreen() {
         }
     }
 
+    suspend fun <T> retryWithBackoff(times: Int = 3, block: suspend () -> T): T {
+        var lastError: Throwable? = null
+        repeat(times) { attempt ->
+            try {
+                return block()
+            } catch (e: Throwable) {
+                lastError = e
+                if (attempt < times - 1) delay(1500L * (attempt + 1))
+            }
+        }
+        throw lastError!!
+    }
+
     // Function to diacritize plain text typed or pasted by the user (no image/OCR needed)
     fun processTextWithGemini(inputText: String) {
         if (inputText.isBlank()) {
@@ -259,7 +273,7 @@ fun ArabicDiacritizerScreen() {
                     $inputText
                 """.trimIndent()
 
-                val response = generativeModel.generateContent(prompt)
+                val response = retryWithBackoff { generativeModel.generateContent(prompt) }
                 val resultText = response.text?.trim().orEmpty()
 
                 withContext(Dispatchers.Main) {
@@ -321,7 +335,7 @@ fun ArabicDiacritizerScreen() {
                     text(prompt)
                 }
 
-                val response = generativeModel.generateContent(inputContent)
+                val response = retryWithBackoff { generativeModel.generateContent(inputContent) }
                 val resultText = response.text?.trim().orEmpty()
 
                 withContext(Dispatchers.Main) {
