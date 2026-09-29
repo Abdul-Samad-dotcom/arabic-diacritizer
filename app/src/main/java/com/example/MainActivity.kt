@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
@@ -24,9 +25,11 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -36,6 +39,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -43,15 +48,23 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FormatSize
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -62,6 +75,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
@@ -69,7 +84,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.darkColorScheme
@@ -104,21 +121,108 @@ import com.google.ai.client.generativeai.type.content
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.consumeWindowInsets
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import kotlin.math.roundToInt
 
 // gemini-3.8-flash does not exist as a published model; gemini-3.5-flash is the
 // current GA flash model as of mid-2026. Centralized so it's a one-line change
 // if/when the Gemini lineup moves again.
 private const val GEMINI_MODEL_NAME = "gemini-3.5-flash"
+
+enum class AppTab { HOME, HISTORY, SETTINGS }
+
+enum class AccentColor(
+    val label: String,
+    val lightPrimary: Color,
+    val lightOnPrimary: Color,
+    val lightContainer: Color,
+    val lightOnContainer: Color,
+    val darkPrimary: Color,
+    val darkOnPrimary: Color,
+    val darkContainer: Color,
+    val darkOnContainer: Color
+) {
+    EMERALD(
+        "أخضر",
+        Color(0xFF0F5132), Color.White, Color(0xFFD1E7DD), Color(0xFF073822),
+        Color(0xFF7FD8AE), Color(0xFF0A3B26), Color(0xFF0F5132), Color(0xFFD1E7DD)
+    ),
+    MAROON(
+        "عنابي",
+        Color(0xFF7A1F3D), Color.White, Color(0xFFF3D9E1), Color(0xFF4A1226),
+        Color(0xFFE8A0B8), Color(0xFF4A1226), Color(0xFF7A1F3D), Color(0xFFF3D9E1)
+    ),
+    BLUE(
+        "أزرق",
+        Color(0xFF0D5C8C), Color.White, Color(0xFFD3E7F5), Color(0xFF083A57),
+        Color(0xFF8FCBEF), Color(0xFF083A57), Color(0xFF0D5C8C), Color(0xFFD3E7F5)
+    ),
+    PURPLE(
+        "بنفسجي",
+        Color(0xFF5B2A86), Color.White, Color(0xFFE5D6F5), Color(0xFF371756),
+        Color(0xFFC9A6EE), Color(0xFF371756), Color(0xFF5B2A86), Color(0xFFE5D6F5)
+    );
+
+    companion object {
+        fun fromName(name: String?): AccentColor = entries.find { it.name == name } ?: EMERALD
+    }
+}
+
+private const val PREFS_NAME = "app_settings"
+private const val KEY_DARK_MODE = "dark_mode_enabled"
+private const val KEY_ACCENT = "accent_color"
+private const val KEY_HISTORY = "history_entries"
+
+private fun appPrefs(context: Context): SharedPreferences =
+    context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+private fun loadDarkModeEnabled(context: Context, systemDefault: Boolean): Boolean =
+    appPrefs(context).getBoolean(KEY_DARK_MODE, systemDefault)
+
+private fun saveDarkModeEnabled(context: Context, enabled: Boolean) {
+    appPrefs(context).edit().putBoolean(KEY_DARK_MODE, enabled).apply()
+}
+
+private fun loadAccentColor(context: Context): AccentColor =
+    AccentColor.fromName(appPrefs(context).getString(KEY_ACCENT, AccentColor.EMERALD.name))
+
+private fun saveAccentColor(context: Context, color: AccentColor) {
+    appPrefs(context).edit().putString(KEY_ACCENT, color.name).apply()
+}
+
+private fun loadHistory(context: Context): List<Pair<Long, String>> {
+    val raw = appPrefs(context).getString(KEY_HISTORY, null) ?: return emptyList()
+    return try {
+        val array = org.json.JSONArray(raw)
+        (0 until array.length()).map { i ->
+            val obj = array.getJSONObject(i)
+            obj.getLong("ts") to obj.getString("text")
+        }
+    } catch (e: Exception) {
+        emptyList()
+    }
+}
+
+private fun writeHistory(context: Context, entries: List<Pair<Long, String>>) {
+    val array = org.json.JSONArray()
+    entries.forEach { (ts, t) ->
+        val obj = org.json.JSONObject()
+        obj.put("ts", ts)
+        obj.put("text", t)
+        array.put(obj)
+    }
+    appPrefs(context).edit().putString(KEY_HISTORY, array.toString()).apply()
+}
+
+private fun saveHistoryEntry(context: Context, text: String) {
+    val existing = loadHistory(context).toMutableList()
+    existing.add(0, System.currentTimeMillis() to text)
+    writeHistory(context, existing.take(50))
+}
+
+private fun deleteHistoryEntry(context: Context, timestamp: Long) {
+    writeHistory(context, loadHistory(context).filterNot { it.first == timestamp })
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -131,12 +235,278 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun ArabicDiacritizerTheme(content: @Composable () -> Unit) {
-    val emeraldLightScheme = lightColorScheme(
-        primary = Color(0xFF0F5132),
-        onPrimary = Color.White,
-        primaryContainer = Color(0xFFD1E7DD),
-        onPrimaryContainer = Color(0xFF073822),
+fun AppRoot() {
+    val context = LocalContext.current
+    val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
+    var darkModeEnabled by remember { mutableStateOf(loadDarkModeEnabled(context, systemDark)) }
+    var accentColor by remember { mutableStateOf(loadAccentColor(context)) }
+    var selectedTab by remember { mutableStateOf(AppTab.HOME) }
+
+    ArabicDiacritizerTheme(darkModeEnabled = darkModeEnabled, accentColor = accentColor) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            bottomBar = {
+                NavigationBar {
+                    NavigationBarItem(
+                        selected = selectedTab == AppTab.SETTINGS,
+                        onClick = { selectedTab = AppTab.SETTINGS },
+                        icon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                        label = { Text("الإعدادات") }
+                    )
+                    NavigationBarItem(
+                        selected = selectedTab == AppTab.HISTORY,
+                        onClick = { selectedTab = AppTab.HISTORY },
+                        icon = { Icon(Icons.Default.History, contentDescription = null) },
+                        label = { Text("السجل") }
+                    )
+                    NavigationBarItem(
+                        selected = selectedTab == AppTab.HOME,
+                        onClick = { selectedTab = AppTab.HOME },
+                        icon = { Icon(Icons.Default.Home, contentDescription = null) },
+                        label = { Text("الرئيسية") }
+                    )
+                }
+            }
+        ) { innerPadding ->
+            Box(modifier = Modifier.padding(innerPadding)) {
+                when (selectedTab) {
+                    AppTab.HOME -> ArabicDiacritizerScreen()
+                    AppTab.HISTORY -> HistoryScreen()
+                    AppTab.SETTINGS -> SettingsScreen(
+                        darkModeEnabled = darkModeEnabled,
+                        onDarkModeChange = {
+                            darkModeEnabled = it
+                            saveDarkModeEnabled(context, it)
+                        },
+                        accentColor = accentColor,
+                        onAccentColorChange = {
+                            accentColor = it
+                            saveAccentColor(context, it)
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun HistoryScreen() {
+    val context = LocalContext.current
+    var historyEntries by remember { mutableStateOf(loadHistory(context)) }
+    val dateFormat = remember {
+        java.text.SimpleDateFormat("yyyy/MM/dd - HH:mm", java.util.Locale("ar"))
+    }
+
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        topBar = { TopAppBar(title = { Text("السجل", fontWeight = FontWeight.Bold) }) }
+    ) { padding ->
+        if (historyEntries.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "لا توجد نصوص محفوظة بعد",
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                )
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(historyEntries, key = { it.first }) { entry ->
+                    val timestamp = entry.first
+                    val text = entry.second
+                    OutlinedCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = dateFormat.format(java.util.Date(timestamp)),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = if (text.length > 150) text.take(150) + "…" else text,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                IconButton(onClick = { copyToClipboard(context, text) }) {
+                                    Icon(Icons.Default.ContentCopy, contentDescription = "نسخ")
+                                }
+                                IconButton(onClick = { shareText(context, text) }) {
+                                    Icon(Icons.Default.Share, contentDescription = "مشاركة")
+                                }
+                                IconButton(onClick = {
+                                    deleteHistoryEntry(context, timestamp)
+                                    historyEntries = loadHistory(context)
+                                }) {
+                                    Icon(Icons.Default.Delete, contentDescription = "حذف")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SettingsScreen(
+    darkModeEnabled: Boolean,
+    onDarkModeChange: (Boolean) -> Unit,
+    accentColor: AccentColor,
+    onAccentColorChange: (AccentColor) -> Unit
+) {
+    val context = LocalContext.current
+    var showAboutDialog by remember { mutableStateOf(false) }
+
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        topBar = { TopAppBar(title = { Text("الإعدادات", fontWeight = FontWeight.Bold) }) }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text(
+                "تخصيص تجربة التشكيل والقراءة الخاصة بك",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+            )
+
+            OutlinedCard(shape = RoundedCornerShape(16.dp)) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Text(
+                        "المظهر والعرض",
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleMedium
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("الوضع الليلي")
+                        Switch(checked = darkModeEnabled, onCheckedChange = onDarkModeChange)
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("لون السمة")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            AccentColor.entries.forEach { color ->
+                                val swatch = if (darkModeEnabled) color.darkPrimary else color.lightPrimary
+                                val onSwatch = if (darkModeEnabled) color.darkOnPrimary else color.lightOnPrimary
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(RoundedCornerShape(50))
+                                        .background(swatch)
+                                        .border(
+                                            width = if (accentColor == color) 2.dp else 0.dp,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            shape = RoundedCornerShape(50)
+                                        )
+                                        .clickable { onAccentColorChange(color) },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (accentColor == color) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = color.label,
+                                            tint = onSwatch,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            OutlinedCard(shape = RoundedCornerShape(16.dp)) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        "النظام والتطبيق",
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showAboutDialog = true }
+                            .padding(vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("عن التطبيق")
+                        Icon(Icons.Default.Info, contentDescription = null)
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                Toast.makeText(context, "التطبيق لم يُنشر على المتجر بعد", Toast.LENGTH_SHORT).show()
+                            }
+                            .padding(vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("تقييم التطبيق")
+                        Icon(Icons.Default.Star, contentDescription = null)
+                    }
+                }
+            }
+        }
+    }
+
+    if (showAboutDialog) {
+        AlertDialog(
+            onDismissRequest = { showAboutDialog = false },
+            confirmButton = {
+                TextButton(onClick = { showAboutDialog = false }) { Text("حسنًا") }
+            },
+            title = { Text("عن التطبيق") },
+            text = {
+                Text("تَشْكِيل الذَّكِي - تطبيق لاستخراج النص العربي من الصور أو النص المباشر وضبطه بالشكل التام باستخدام الذكاء الاصطناعي.")
+            }
+        )
+    }
+}
+
+@Composable
+fun ArabicDiacritizerTheme(
+    darkModeEnabled: Boolean,
+    accentColor: AccentColor,
+    content: @Composable () -> Unit
+) {
+    val lightScheme = lightColorScheme(
+        primary = accentColor.lightPrimary,
+        onPrimary = accentColor.lightOnPrimary,
+        primaryContainer = accentColor.lightContainer,
+        onPrimaryContainer = accentColor.lightOnContainer,
         secondary = Color(0xFF856404),
         secondaryContainer = Color(0xFFFFF3CD),
         surface = Color(0xFFFBFBF9),
@@ -145,11 +515,11 @@ fun ArabicDiacritizerTheme(content: @Composable () -> Unit) {
         onBackground = Color(0xFF1F2421)
     )
 
-    val emeraldDarkScheme = darkColorScheme(
-        primary = Color(0xFF7FD8AE),
-        onPrimary = Color(0xFF0A3B26),
-        primaryContainer = Color(0xFF0F5132),
-        onPrimaryContainer = Color(0xFFD1E7DD),
+    val darkScheme = darkColorScheme(
+        primary = accentColor.darkPrimary,
+        onPrimary = accentColor.darkOnPrimary,
+        primaryContainer = accentColor.darkContainer,
+        onPrimaryContainer = accentColor.darkOnContainer,
         secondary = Color(0xFFE0C46B),
         secondaryContainer = Color(0xFF4D3F0A),
         surface = Color(0xFF17201C),
@@ -159,7 +529,7 @@ fun ArabicDiacritizerTheme(content: @Composable () -> Unit) {
     )
 
     MaterialTheme(
-        colorScheme = if (androidx.compose.foundation.isSystemInDarkTheme()) emeraldDarkScheme else emeraldLightScheme,
+        colorScheme = if (darkModeEnabled) darkScheme else lightScheme,
         content = content
     )
 }
@@ -226,19 +596,6 @@ fun ArabicDiacritizerScreen() {
         }
     }
 
-    suspend fun <T> retryWithBackoff(times: Int = 3, block: suspend () -> T): T {
-        var lastError: Throwable? = null
-        repeat(times) { attempt ->
-            try {
-                return block()
-            } catch (e: Throwable) {
-                lastError = e
-                if (attempt < times - 1) delay(1500L * (attempt + 1))
-            }
-        }
-        throw lastError!!
-    }
-
     // Function to diacritize plain text typed or pasted by the user (no image/OCR needed)
     fun processTextWithGemini(inputText: String) {
         if (inputText.isBlank()) {
@@ -274,13 +631,14 @@ fun ArabicDiacritizerScreen() {
                     $inputText
                 """.trimIndent()
 
-                val response = retryWithBackoff { generativeModel.generateContent(prompt) }
+                val response = generativeModel.generateContent(prompt)
                 val resultText = response.text?.trim().orEmpty()
 
                 withContext(Dispatchers.Main) {
                     isLoading = false
                     if (resultText.isNotBlank()) {
                         extractedText = resultText
+                        saveHistoryEntry(context, resultText)
                     } else {
                         errorMessage = "لم يُرجع النموذج استجابة."
                     }
@@ -336,13 +694,14 @@ fun ArabicDiacritizerScreen() {
                     text(prompt)
                 }
 
-                val response = retryWithBackoff { generativeModel.generateContent(inputContent) }
+                val response = generativeModel.generateContent(inputContent)
                 val resultText = response.text?.trim().orEmpty()
 
                 withContext(Dispatchers.Main) {
                     isLoading = false
                     if (resultText.isNotBlank()) {
                         extractedText = resultText
+                        saveHistoryEntry(context, resultText)
                     } else {
                         errorMessage = "لم يتم العثور على نص عربي في الصورة أو لم يُرجع النموذج استجابة."
                     }
@@ -402,9 +761,6 @@ fun ArabicDiacritizerScreen() {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // API Key notice if missing
             if (BuildConfig.GEMINI_API_KEY.isBlank() || BuildConfig.GEMINI_API_KEY == "MY_GEMINI_API_KEY") {
@@ -412,7 +768,9 @@ fun ArabicDiacritizerScreen() {
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.secondaryContainer
                     ),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
                 ) {
                     Row(
                         modifier = Modifier.padding(12.dp),
@@ -433,9 +791,11 @@ fun ArabicDiacritizerScreen() {
                 }
             }
 
-            // Input mode toggle: image (OCR) vs. typing/pasting text directly
+            // Top controls: input mode toggle only (image OCR vs. typed text)
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 FilterChip(
@@ -458,179 +818,305 @@ fun ArabicDiacritizerScreen() {
                 )
             }
 
-            if (isTextInputMode) {
-                // Direct text input card: paste or type Arabic text to diacritize, no image needed
-                OutlinedCard(
+            // Middle content area: large, mostly-empty space when idle;
+            // fills naturally with the picked image / typed text / result once there is content.
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp),
+                contentAlignment = if (selectedBitmap == null && manualInputText.isBlank() && extractedText.isBlank()) {
+                    Alignment.Center
+                } else {
+                    Alignment.TopCenter
+                }
+            ) {
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.outlinedCardColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    )
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
+                    if (isTextInputMode) {
+                        // Direct text input: paste or type Arabic text to diacritize, no image needed
                         OutlinedTextField(
                             value = manualInputText,
                             onValueChange = { manualInputText = it },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(min = 120.dp, max = 260.dp)
+                                .heightIn(min = 160.dp, max = 320.dp)
                                 .testTag("manual_text_field"),
                             placeholder = { Text("الصق أو اكتب النص العربي هنا للتشكيل") },
                             textStyle = LocalTextStyle.current.copy(textDirection = TextDirection.Rtl)
                         )
-                        FilledTonalButton(
-                            onClick = { processTextWithGemini(manualInputText) },
-                            enabled = !isLoading && manualInputText.isNotBlank(),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("diacritize_text_button"),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            if (isLoading) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    strokeWidth = 2.dp,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            } else {
-                                Icon(
-                                    imageVector = Icons.Default.AutoAwesome,
-                                    contentDescription = "بدء التشكيل"
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("تشكيل")
-                            }
-                        }
-                    }
-                }
-            } else {
-
-            // Controls Card: Image Picker & Actions
-            OutlinedCard(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.outlinedCardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Button(
-                            onClick = {
-                                photoPickerLauncher.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                )
-                            },
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("pick_image_button"),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary
-                            ),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.AddPhotoAlternate,
-                                contentDescription = "اختيار صورة"
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = if (selectedBitmap == null) "اختيار صورة للنص" else "تغيير الصورة",
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-
-                        if (selectedBitmap != null) {
-                            FilledTonalButton(
-                                onClick = { processImageWithGemini() },
-                                enabled = !isLoading,
-                                modifier = Modifier.testTag("diacritize_button"),
-                                shape = RoundedCornerShape(12.dp)
+                    } else {
+                        if (selectedBitmap == null) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                if (isLoading) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(18.dp),
-                                        strokeWidth = 2.dp,
-                                        color = MaterialTheme.colorScheme.primary
+                                Icon(
+                                    imageVector = Icons.Default.AddPhotoAlternate,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(48.dp),
+                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                                )
+                                Text(
+                                    text = "لم يتم اختيار صورة بعد",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                                )
+                            }
+                        } else {
+                            selectedBitmap?.let { bitmap ->
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 120.dp, max = 320.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(Color.Black.copy(alpha = 0.05f))
+                                        .border(
+                                            1.dp,
+                                            MaterialTheme.colorScheme.outlineVariant,
+                                            RoundedCornerShape(12.dp)
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Image(
+                                        bitmap = bitmap.asImageBitmap(),
+                                        contentDescription = "الصورة المختارة",
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(max = 320.dp),
+                                        contentScale = ContentScale.Fit
                                     )
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Default.AutoAwesome,
-                                        contentDescription = "بدء التشكيل"
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("تشكيل")
+
+                                    IconButton(
+                                        onClick = {
+                                            selectedBitmap = null
+                                            selectedImageUri = null
+                                        },
+                                        modifier = Modifier
+                                            .align(Alignment.TopEnd)
+                                            .padding(4.dp)
+                                            .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(50))
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Clear,
+                                            contentDescription = "حذف الصورة",
+                                            tint = Color.White
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
 
-                    // Image Preview Area
-                    selectedBitmap?.let { bitmap ->
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 120.dp, max = 220.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Color.Black.copy(alpha = 0.05f))
-                                .border(
-                                    1.dp,
-                                    MaterialTheme.colorScheme.outlineVariant,
-                                    RoundedCornerShape(12.dp)
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Image(
-                                bitmap = bitmap.asImageBitmap(),
-                                contentDescription = "الصورة المختارة",
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .heightIn(max = 220.dp),
-                                contentScale = ContentScale.Fit
+                    // Error Display
+                    errorMessage?.let { error ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.errorContainer
                             )
-
-                            IconButton(
-                                onClick = {
-                                    selectedBitmap = null
-                                    selectedImageUri = null
-                                },
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .padding(4.dp)
-                                    .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(50))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Clear,
-                                    contentDescription = "حذف الصورة",
-                                    tint = Color.White
+                                    imageVector = Icons.Default.Warning,
+                                    contentDescription = "خطأ",
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = error,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onErrorContainer
                                 )
                             }
                         }
                     }
+
+                    // Loading Indicator
+                    AnimatedVisibility(
+                        visible = isLoading,
+                        enter = fadeIn(),
+                        exit = fadeOut()
+                    ) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                            ),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    text = "جارٍ استخراج النص وضبطه بالشكل التام عبر الذكاء الاصطناعي...",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium,
+                                    textAlign = TextAlign.Center
+                                )
+                                Text(
+                                    text = "قد يستغرق ذلك بضع ثوانٍ لحساب الحركات والإعراب بدقة",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+                    }
+
+                    // Result: Scrollable Text Display with 2.0x Line Height
+                    if (extractedText.isNotBlank()) {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("result_text_card"),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surface
+                            ),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "النص المشكول (تَشْكِيلٌ كَامِلٌ):",
+                                        fontWeight = FontWeight.Bold,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        IconButton(
+                                            onClick = {
+                                                copyToClipboard(context, extractedText)
+                                                Toast.makeText(context, "تم نسخ النص المشكول بنجاح", Toast.LENGTH_SHORT).show()
+                                            },
+                                            modifier = Modifier.testTag("copy_text_button")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.ContentCopy,
+                                                contentDescription = "نسخ النص",
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+
+                                        IconButton(
+                                            onClick = {
+                                                shareText(context, extractedText)
+                                            }
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Share,
+                                                contentDescription = "مشاركة النص",
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+
+                                        IconButton(
+                                            onClick = {
+                                                if (isTextInputMode) processTextWithGemini(manualInputText) else processImageWithGemini()
+                                            }
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Refresh,
+                                                contentDescription = "إعادة التشكيل",
+                                                tint = MaterialTheme.colorScheme.secondary
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 200.dp, max = 500.dp)
+                                        .background(
+                                            brush = Brush.verticalGradient(
+                                                colors = listOf(Color(0xFFE9DFC0), Color(0xFFC7B47D))
+                                            ),
+                                            shape = RoundedCornerShape(12.dp)
+                                        )
+                                        .border(
+                                            1.dp,
+                                            Color(0xFF8A7748).copy(alpha = 0.5f),
+                                            RoundedCornerShape(12.dp)
+                                        )
+                                        .padding(16.dp)
+                                        .verticalScroll(rememberScrollState())
+                                ) {
+                                    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+                                        SelectionContainer {
+                                            Text(
+                                                text = extractedText,
+                                                fontSize = fontSizeSp.sp,
+                                                // High line-height (2.0x) specifically for Arabic diacritics clarity
+                                                lineHeight = (fontSizeSp * 2.0f).sp,
+                                                textAlign = TextAlign.Start,
+                                                fontFamily = FontFamily.Default,
+                                                fontWeight = FontWeight.Normal,
+                                                color = Color(0xFF2B1D0E),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .testTag("diacritized_text_display")
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "عدد الأحرف: ${extractedText.length}",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                    )
+                                    OutlinedButton(
+                                        onClick = { extractedText = "" },
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Text("مسح النتيجة")
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
                 }
             }
-            }
 
-            // Typography Controls: Font Size Slider (20sp to 42sp)
-            Card(
+            // Bottom controls: font size + primary action (تشكيل) - always reachable, never scroll away
+            Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+                color = MaterialTheme.colorScheme.surface,
+                shadowElevation = 8.dp
             ) {
                 Column(
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Row(
@@ -654,7 +1140,7 @@ fun ArabicDiacritizerScreen() {
                             )
                         }
                         Text(
-                            text = "${fontSizeSp.roundToInt()} sp (تباعد الأسطر 2.0x)",
+                            text = "${fontSizeSp.roundToInt()} sp",
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary,
                             style = MaterialTheme.typography.bodyMedium
@@ -675,230 +1161,60 @@ fun ArabicDiacritizerScreen() {
                         )
                     )
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("20sp (صغير)", style = MaterialTheme.typography.labelSmall)
-                        Text("31sp (متوسط)", style = MaterialTheme.typography.labelSmall)
-                        Text("42sp (كبير وواضح)", style = MaterialTheme.typography.labelSmall)
-                    }
-                }
-            }
-
-            // Error Display
-            errorMessage?.let { error ->
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer
-                    )
-                ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Warning,
-                            contentDescription = "خطأ",
-                            tint = MaterialTheme.colorScheme.error
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = error,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onErrorContainer
-                        )
-                    }
-                }
-            }
-
-            // Loading Indicator
-            AnimatedVisibility(
-                visible = isLoading,
-                enter = fadeIn(),
-                exit = fadeOut()
-            ) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-                    ),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        CircularProgressIndicator(
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Text(
-                            text = "جارٍ استخراج النص وضبطه بالشكل التام عبر الذكاء الاصطناعي...",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Medium,
-                            textAlign = TextAlign.Center
-                        )
-                        Text(
-                            text = "قد يستغرق ذلك بضع ثوانٍ لحساب الحركات والإعراب بدقة",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                }
-            }
-
-            // Main Output Area: Scrollable Text Display with 2.0x Line Height
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("result_text_card"),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    // Header of result card with action buttons
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "النص المشكول (تَشْكِيلٌ كَامِلٌ):",
-                            fontWeight = FontWeight.Bold,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-
-                        if (extractedText.isNotBlank()) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                IconButton(
-                                    onClick = {
-                                        copyToClipboard(context, extractedText)
-                                        Toast.makeText(context, "تم نسخ النص المشكول بنجاح", Toast.LENGTH_SHORT).show()
-                                    },
-                                    modifier = Modifier.testTag("copy_text_button")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.ContentCopy,
-                                        contentDescription = "نسخ النص",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-
-                                IconButton(
-                                    onClick = {
-                                        shareText(context, extractedText)
-                                    }
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Share,
-                                        contentDescription = "مشاركة النص",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-
-                                IconButton(
-                                    onClick = { processImageWithGemini() }
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Refresh,
-                                        contentDescription = "إعادة التشكيل",
-                                        tint = MaterialTheme.colorScheme.secondary
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // Arabic Text Display with RTL and 2.0x Line Height
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 200.dp, max = 500.dp)
-                            .background(
-                                brush = Brush.verticalGradient(
-                                    colors = listOf(Color(0xFFE9DFC0), Color(0xFFC7B47D))
-                                ),
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            .border(
-                                1.dp,
-                                Color(0xFF8A7748).copy(alpha = 0.5f),
-                                RoundedCornerShape(12.dp)
-                            )
-                            .padding(16.dp)
-                            .verticalScroll(rememberScrollState())
-                    ) {
-                        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-                            SelectionContainer {
-                                if (extractedText.isNotBlank()) {
-                                    Text(
-                                        text = extractedText,
-                                        fontSize = fontSizeSp.sp,
-                                        // High line-height (2.0x) specifically for Arabic diacritics clarity
-                                        lineHeight = (fontSizeSp * 2.0f).sp,
-                                        textAlign = TextAlign.Start,
-                                        fontFamily = FontFamily.Default,
-                                        fontWeight = FontWeight.Normal,
-                                        color = Color(0xFF2B1D0E),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .testTag("diacritized_text_display")
-                                    )
-                                } else {
-                                    Text(
-                                        text = if (isLoading) {
-                                            "يتم الآن تحليل الصورة وإضافة الحركات التشكيلية..."
-                                        } else {
-                                            "اختر صورة تحتوي على نص عربي واضغط على زر «تشكيل» لاستخراج النص وضبطه بالشكل التام (الفَتْحَة، الضَّمَّة، الكَسْرَة، السُّكُون، الشَّدَّة، التَّنْوِين).\n\nسيعرض النص هنا مع تباعد أسطر مضاعف (2.0x) لتوضيح علامات التشكيل بدقة دون تداخل."
-                                        },
-                                        fontSize = 18.sp,
-                                        lineHeight = 36.sp,
-                                        textAlign = TextAlign.Center,
-                                        color = Color(0xFF2B1D0E).copy(alpha = 0.55f),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 32.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    if (extractedText.isNotBlank()) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                    if (!isTextInputMode) {
+                        OutlinedButton(
+                            onClick = {
+                                photoPickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("pick_image_button"),
+                            shape = RoundedCornerShape(12.dp)
                         ) {
-                            Text(
-                                text = "عدد الأحرف: ${extractedText.length}",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            Icon(
+                                imageVector = Icons.Default.AddPhotoAlternate,
+                                contentDescription = "اختيار صورة"
                             )
-                            OutlinedButton(
-                                onClick = { extractedText = "" },
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Text("مسح النتيجة")
-                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (selectedBitmap == null) "اختيار صورة للنص" else "تغيير الصورة",
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+
+                    Button(
+                        onClick = {
+                            if (isTextInputMode) processTextWithGemini(manualInputText) else processImageWithGemini()
+                        },
+                        enabled = !isLoading && if (isTextInputMode) manualInputText.isNotBlank() else selectedBitmap != null,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("diacritize_button"),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        if (isLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = "بدء التشكيل"
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("تشكيل", fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }
@@ -952,64 +1268,4 @@ private fun shareText(context: Context, text: String) {
     }
     val shareIntent = Intent.createChooser(sendIntent, "مشاركة النص المشكول")
     context.startActivity(shareIntent)
-}
-
-
-// ---------- Bottom navigation: الرئيسية / السجل / الإعدادات ----------
-enum class AppTab { HOME, HISTORY, SETTINGS }
-
-@Composable
-fun AppRoot() {
-    var selectedTab by remember { mutableStateOf(AppTab.HOME) }
-
-    ArabicDiacritizerTheme {
-        Scaffold(
-            modifier = Modifier.fillMaxSize(),
-            contentWindowInsets = WindowInsets(0.dp, 0.dp, 0.dp, 0.dp),
-            bottomBar = {
-                // Force RTL so the order is: الرئيسية (right) - السجل - الإعدادات (left)
-                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-                    NavigationBar {
-                        NavigationBarItem(
-                            selected = selectedTab == AppTab.HOME,
-                            onClick = { selectedTab = AppTab.HOME },
-                            icon = { Icon(Icons.Default.Home, contentDescription = null) },
-                            label = { Text("الرئيسية") }
-                        )
-                        NavigationBarItem(
-                            selected = selectedTab == AppTab.HISTORY,
-                            onClick = { selectedTab = AppTab.HISTORY },
-                            icon = { Icon(Icons.Default.History, contentDescription = null) },
-                            label = { Text("السجل") }
-                        )
-                        NavigationBarItem(
-                            selected = selectedTab == AppTab.SETTINGS,
-                            onClick = { selectedTab = AppTab.SETTINGS },
-                            icon = { Icon(Icons.Default.Settings, contentDescription = null) },
-                            label = { Text("الإعدادات") }
-                        )
-                    }
-                }
-            }
-        ) { innerPadding ->
-            Box(modifier = Modifier.padding(innerPadding).consumeWindowInsets(innerPadding)) {
-                // Home stays composed the whole time, so the picked image and the
-                // diacritized text are NOT lost when switching tabs.
-                ArabicDiacritizerScreen()
-
-                when (selectedTab) {
-                    AppTab.HOME -> Unit
-                    AppTab.HISTORY -> Surface(modifier = Modifier.fillMaxSize()) { PlaceholderScreen("السجل") }
-                    AppTab.SETTINGS -> Surface(modifier = Modifier.fillMaxSize()) { PlaceholderScreen("الإعدادات") }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun PlaceholderScreen(title: String) {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(text = "$title - قريبًا", style = MaterialTheme.typography.titleMedium)
-    }
 }
