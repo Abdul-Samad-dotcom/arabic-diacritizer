@@ -85,6 +85,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -826,12 +827,14 @@ fun ArabicDiacritizerScreen() {
                             .fillMaxWidth()
                             .heightIn(min = 200.dp, max = 500.dp)
                             .background(
-                                color = MaterialTheme.colorScheme.background,
+                                brush = Brush.verticalGradient(
+                                    colors = listOf(Color(0xFFE9DFC0), Color(0xFFC7B47D))
+                                ),
                                 shape = RoundedCornerShape(12.dp)
                             )
                             .border(
                                 1.dp,
-                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                Color(0xFF8A7748).copy(alpha = 0.5f),
                                 RoundedCornerShape(12.dp)
                             )
                             .padding(16.dp)
@@ -848,7 +851,7 @@ fun ArabicDiacritizerScreen() {
                                         textAlign = TextAlign.Start,
                                         fontFamily = FontFamily.Default,
                                         fontWeight = FontWeight.Normal,
-                                        color = MaterialTheme.colorScheme.onBackground,
+                                        color = Color(0xFF2B1D0E),
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .testTag("diacritized_text_display")
@@ -863,7 +866,7 @@ fun ArabicDiacritizerScreen() {
                                         fontSize = 18.sp,
                                         lineHeight = 36.sp,
                                         textAlign = TextAlign.Center,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                                        color = Color(0xFF2B1D0E).copy(alpha = 0.55f),
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .padding(vertical = 32.dp)
